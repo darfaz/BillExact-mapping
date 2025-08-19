@@ -1,0 +1,20 @@
+{
+  "activity": {
+    "A101": ["draft","redline","revise","edit","amend","compose","prepare"],
+    "A102": ["research","analyze","analysis"],
+    "A103": ["phone call","call","teleconf","telephone","conf call"],
+    "A104": ["email","e-mail","correspondence","corr."],
+    "A105": ["meeting","conference","confer","zoom","teams"],
+    "A106": ["review","read","summarize","digest","examine"],
+    "A107": ["travel","drive","flight","uber","cab"]
+  },
+  "task": {
+    "L210": ["pleading","complaint","answer","motion to dismiss","mtd","mtq"],
+    "L310": ["discovery","interrogatories","requests for production","rfp","rfa"],
+    "L320": ["deposition","depo","transcript","court reporter"],
+    "L330": ["expert","expert report","daubert"],
+    "L440": ["summary judgment","msj","dispositive"],
+    "L450": ["mediation","adr","settlement conf"],
+    "L510": ["trial prep","voir dire","jury instructions"]
+  }
+}

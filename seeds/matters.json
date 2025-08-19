@@ -1,0 +1,11 @@
+[
+  {
+    "client_id":"ACME",
+    "client_matter_id":"ACME-2025-0317",
+    "law_firm_matter_id":"LF-7782",
+    "law_firm_id":"LF-001",
+    "description":"Smith v. Acme Insurance - bodily injury claim",
+    "billing_start":"2025-08-01",
+    "billing_end":"2025-08-31"
+  }
+]
