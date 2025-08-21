@@ -1,0 +1,21 @@
+<!doctype html>
+<html>
+  <body>
+    <h1>BillExact Review Dashboard</h1>
+    <table border="1">
+      <tr><th>ID</th><th>Narrative</th><th>Duration</th><th>Compliance Issues</th></tr>
+      {% for entry in entries %}
+      <tr>
+        <td>{{ entry.id }}</td>
+        <td>{{ entry.narrative }}</td>
+        <td>{{ entry.duration }}</td>
+        <td>
+          {% for issue in issues if issue.rule_id and entry.id in issue.message %}
+            <span style="color:red">{{ issue.message }}</span><br>
+          {% endfor %}
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+  </body>
+</html>
