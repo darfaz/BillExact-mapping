@@ -1,6 +1,6 @@
 # Passive Activity‑to‑LEDES Translator
 
-This repository contains a Databutton app that passively collects
+This repository contains an app that passively collects
 computer activity data via [ActivityWatch](https://github.com/ActivityWatch/activitywatch),
 maps each activity to UTBMS task and activity codes and exports
 LEDES 1998B compliant invoices. The implementation follows the product
