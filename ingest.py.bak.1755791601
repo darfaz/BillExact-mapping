@@ -1,0 +1,347 @@
+"""
+ingest.py
+---------
+ActivityWatch ingestion for BillExact pilot.
+- Auto-detect aw-watcher-window bucket (hostname suffixes)
+- Parse NDJSON export line-by-line
+- Guard timestamp key variants
+- Allow AW_BUCKET env override
+"""
+from __future__ import annotations
+
+import datetime as dt
+import json
+import logging
+import os
+import re
+import sqlite3
+from pathlib import Path
+from typing import Iterable, List, Dict, Any
+
+import pandas as pd
+import requests
+
+from categorize import categorize_text
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
+
+# Path to SQLite DB
+DB_PATH = Path("data.db")
+
+
+def _initialise_db():
+    """Ensure DB exists by applying db/schema.sql if present."""
+    schema_path = Path("db/schema.sql")
+    if not schema_path.exists():
+        logger.warning("Schema file db/schema.sql not found; skipping DB initialisation")
+        return
+    conn = sqlite3.connect(DB_PATH)
+    with open(schema_path, "r") as f:
+        sql = f.read()
+    conn.executescript(sql)
+    conn.commit()
+    conn.close()
+
+
+def _parse_json_lines(text: str) -> List[Any]:
+    """Parse NDJSON: one JSON object per line; ignore malformed lines."""
+    items: List[Any] = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+            if isinstance(obj, str):
+                try:
+                    obj = json.loads(obj)
+                except Exception:
+                    pass
+            items.append(obj)
+        except Exception:
+            continue
+    return items
+
+
+def _find_window_bucket(url: str) -> str:
+    """Find the correct aw-watcher-window bucket (hostnames often appended)."""
+    r = requests.get(f"{url}/api/0/buckets", timeout=10)
+    r.raise_for_status()
+    data = None
+    try:
+        data = r.json()
+    except Exception:
+        data = _parse_json_lines(r.text)
+
+    ids: List[str] = []
+    if isinstance(data, list):
+        for item in data:
+            if isinstance(item, dict) and "id" in item:
+                ids.append(item["id"])
+            elif isinstance(item, str):
+                # string might be a JSON-encoded dict or an id itself
+                try:
+                    obj = json.loads(item)
+                    if isinstance(obj, dict) and "id" in obj:
+                        ids.append(obj["id"])
+                except Exception:
+                    ids.append(item)
+    elif isinstance(data, dict) and "id" in data:
+        ids = [data["id"]]
+
+    # Fallback: regex scrape
+    if not ids:
+        ids = re.findall(r'"id"\s*:\s*"([^"]+)"', r.text)
+
+    for bid in ids:
+        if isinstance(bid, str) and bid.startswith("aw-watcher-window"):
+            return bid
+    raise RuntimeError(f"Could not find aw-watcher-window bucket; saw ids: {ids[:5]}")
+
+
+def fetch_activitywatch_events(url: str, since: dt.datetime) -> List[Dict[str, Any]]:
+    """Fetch events from ActivityWatch, flattening container responses and NDJSON."""
+    bucket = os.environ.get("AW_BUCKET") or _find_window_bucket(url)  # env override or auto-detect
+    since_iso = since.isoformat()
+    endpoint = f"{url}/api/0/export?bucket={bucket}&since={since_iso}"
+    logger.info("Fetching events from %s", endpoint)
+
+    resp = requests.get(endpoint, timeout=30)
+    resp.raise_for_status()
+
+    # Try JSON first
+    events: List[Dict[str, Any]] = []
+    try:
+        data = resp.json()
+    except Exception:
+        data = None
+
+    def _extend_from(obj):
+        nonlocal events
+        if isinstance(obj, dict):
+            if isinstance(obj.get("events"), list):
+                events.extend(obj["events"])
+            # If this is a mapping of bucket -> {events:[...]}
+            elif any(isinstance(v, dict) and isinstance(v.get("events"), list) for v in obj.values()):
+                for v in obj.values():
+                    if isinstance(v, dict) and isinstance(v.get("events"), list):
+                        events.extend(v["events"])
+            # Or an event-shaped dict
+            elif ("timestamp" in obj) or ("data" in obj):
+                events.append(obj)
+        elif isinstance(obj, list):
+            # List of events or list of containers
+            for item in obj:
+                _extend_from(item)
+
+    if data is not None:
+        _extend_from(data)
+
+    # Fallback: NDJSON line-by-line
+    if not events:
+        for obj in _parse_json_lines(resp.text):
+            _extend_from(obj)
+
+    logger.info("Fetched %d events", len(events))
+    return events
+
+
+def _transform_events(events: Iterable[Dict[str, Any]]) -> pd.DataFrame:
+    """Normalize raw ActivityWatch events into a DataFrame."""
+    rows = []
+    for ev in events:
+        if not isinstance(ev, dict):
+            continue
+        data = ev.get("data", {}) or {}
+        title = data.get("title", "")
+        app_name = data.get("app", data.get("app_name", ""))
+        # Timestamp (handle different keys)
+        timestamp_str = ev.get("timestamp") or ev.get("time") or ev.get("@timestamp")
+        if not timestamp_str:
+            continue
+        try:
+            timestamp = dt.datetime.fromisoformat(timestamp_str.replace("Z", "+00:00")).astimezone(dt.timezone.utc)
+        except Exception:
+            continue
+        # Duration: prefer top-level; fallback to data
+        duration_seconds = ev.get("duration")
+        if duration_seconds is None:
+            duration_seconds = data.get("duration", 0)
+        try:
+            duration_hours = float(duration_seconds) / 3600.0
+        except Exception:
+            duration_hours = 0.0
+
+        rows.append({
+            "timestamp": timestamp,
+            "duration": duration_hours,
+            "title": title,
+            "app_name": app_name,
+            "date": timestamp.date(),
+        })
+    return pd.DataFrame(rows)
+
+
+def _get_existing_entries(conn: sqlite3.Connection) -> set[tuple[dt.datetime, str]]:
+    """Return set of (timestamp, description) for existing entries to dedupe."""
+    cur = conn.cursor()
+    cur.execute("SELECT timestamp, description FROM time_entries")
+    out = set()
+    for ts, desc in cur.fetchall():
+        try:
+            out.add((dt.datetime.fromisoformat(ts), desc))
+        except Exception:
+            continue
+    return out
+
+
+def ingest_from_activitywatch(
+    url: str,
+    client_id: str,
+    matter_id: str,
+    timekeeper_id: str,
+    timekeeper_name: str,
+    user_id: str = "unknown",
+    since: dt.datetime | None = None,
+) -> int:
+    """Fetch events and persist them as time entries."""
+    _initialise_db()
+    if since is None:
+        since = dt.datetime.utcnow() - dt.timedelta(days=1)
+
+    events = fetch_activitywatch_events_v2(url, since)
+    df = _transform_events_v2(events)
+    if df.empty:
+        return 0
+
+    conn = sqlite3.connect(DB_PATH)
+    existing = _get_existing_entries(conn)
+    inserted = 0
+    cur = conn.cursor()
+
+    for _, row in df.iterrows():
+        key = (row["timestamp"], row["title"])
+        if key in existing:
+            continue
+
+        result = categorize_text(row["title"])
+        rate = None
+        total = None
+        cur.execute(
+            """
+            INSERT INTO time_entries (
+              user_id, client_id, matter_id, timekeeper_id, timekeeper_name,
+              date, description, duration_hours, task_code, activity_code,
+              confidence, rate, total, timestamp
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                user_id,
+                client_id,
+                matter_id,
+                timekeeper_id,
+                timekeeper_name,
+                row["date"].isoformat(),
+                row["title"],
+                row["duration"],
+                result.get("task_code"),
+                result.get("activity_code"),
+                result.get("confidence"),
+                rate,
+                total,
+                row["timestamp"].isoformat(),
+            ),
+        )
+        inserted += 1
+
+    conn.commit()
+    conn.close()
+    logger.info("Inserted %d new time entries", inserted)
+    return inserted
+
+
+__all__ = ["ingest_from_activitywatch"]
+
+def _transform_events_v2(events: Iterable[Dict[str, Any]]) -> pd.DataFrame:
+    """Normalize raw ActivityWatch events into a DataFrame (robust)."""
+    rows = []
+    for ev in events:
+        if not isinstance(ev, dict):
+            continue
+
+        data = ev.get("data", {}) or {}
+
+        # Title and app fallbacks
+        title = data.get("title") or data.get("name") or ""
+        app_name = data.get("app") or data.get("app_name") or ""
+
+        # Timestamp candidates (top-level first, then data)
+        ts_str = (
+            ev.get("timestamp") or ev.get("time") or ev.get("@timestamp")
+            or ev.get("start") or data.get("timestamp") or data.get("time") or data.get("start")
+        )
+        if not ts_str:
+            continue
+        try:
+            timestamp = dt.datetime.fromisoformat(ts_str.replace("Z","+00:00")).astimezone(dt.timezone.utc)
+        except Exception:
+            try:
+                timestamp = dt.datetime.fromisoformat(ts_str).astimezone(dt.timezone.utc)
+            except Exception:
+                continue
+
+        # Duration seconds: prefer top-level; fallback to data; compute from end if needed
+        dur_s = ev.get("duration")
+        if dur_s is None:
+            dur_s = data.get("duration")
+        if dur_s is None:
+            end_str = ev.get("end") or data.get("end")
+            if end_str:
+                try:
+                    end_ts = dt.datetime.fromisoformat(end_str.replace("Z","+00:00")).astimezone(dt.timezone.utc)
+                    dur_s = (end_ts - timestamp).total_seconds()
+                except Exception:
+                    dur_s = 0
+        try:
+            duration_hours = float(dur_s) / 3600.0 if dur_s is not None else 0.0
+        except Exception:
+            duration_hours = 0.0
+
+        rows.append({
+            "timestamp": timestamp,
+            "duration": duration_hours,
+            "title": title,
+            "app_name": app_name,
+            "date": timestamp.date(),
+        })
+    return pd.DataFrame(rows)
+
+def fetch_activitywatch_events_v2(url: str, since: dt.datetime) -> List[Dict[str, Any]]:
+    """Fetch events via /buckets/{id}/events?start&end (plain JSON array)."""
+    # bucket override or auto-detect
+    bucket = os.environ.get("AW_BUCKET") or _find_window_bucket(url)
+    # start and end (now, UTC)
+    start = since.astimezone(dt.timezone.utc).isoformat()
+    end = dt.datetime.now(dt.timezone.utc).isoformat()
+    endpoint = f"{url}/api/0/buckets/{bucket}/events"
+    params = {"start": start, "end": end}
+    logger.info("Fetching events (v2) from %s params=%s", endpoint, params)
+
+    try:
+        r = requests.get(endpoint, params=params, timeout=30)
+        r.raise_for_status()
+        data = r.json()
+        if isinstance(data, list):
+            logger.info("Fetched %d events (v2)", len(data))
+            return data
+        # Sometimes servers wrap differently; be permissive:
+        if isinstance(data, dict) and isinstance(data.get("events"), list):
+            evs = data["events"]
+            logger.info("Fetched %d events (v2: wrapped)", len(evs))
+            return evs
+    except Exception as e:
+        logger.warning("v2 fetch failed: %s", e)
+
+    logger.info("Fetched 0 events (v2)")
+    return []

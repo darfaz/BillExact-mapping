@@ -15,6 +15,10 @@ accurately and that the categorisation engine is assigning
 appropriate UTBMS codes.
 """
 
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent))
+
 import streamlit as st
 import pandas as pd
 import sqlite3
