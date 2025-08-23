@@ -1,0 +1,28 @@
+templates:
+  email_adjuster:
+    utbms: "L140"
+    text: "Email with {adjuster_name} (carrier) re {topic} — next steps: {action}"
+  draft_motion:
+    utbms: "L310"
+    text: "Draft {motion_type} re {issue}; review {support_docs}; revise for filing"
+  discovery_set:
+    utbms: "L230"
+    text: "Prepare {discovery_type} to {party} (scope: {scope}); review responses and follow-up"
+  depo_prep:
+    utbms: "L330"
+    text: "Prepare {witness} for deposition (topics: {topics}; exhibits: {exhibits})"
+  research_issue:
+    utbms: "L120"
+    text: "Research {legal_issue}; apply to facts; memo to file"
+  case_assessment:
+    utbms: "L130"
+    text: "Early case assessment (liability/damages/venue); strategy options and budget impact"
+adequate_rules:
+  require_participants_on_comms: true
+  require_purpose_and_scope: true
+  forbid_vague_phrases:
+    - "attention to matter"
+    - "work on file"
+    - "update status"
+    - "research"
+    - "analysis"

@@ -1,0 +1,54 @@
+schema_version: 1
+name: industry_default
+applies_if:
+  any_client_id: ["*"]
+
+billing:
+  ledes_version: "1998B"
+  utbms_required: true
+  no_block_billing: true
+  min_increment_hours: 0.1
+  travel_time_rate_multiplier: 0.5
+  reject_e_legal_research_charges: true
+  reject_overhead_tasks: true
+
+staffing:
+  max_attendees_per_event: 1
+  efficiency_required: true
+
+preapprovals:
+  legal_research_hours_threshold: 3
+  discovery_motions: true
+  additional_attendee: true
+  expense_threshold_usd: 5000
+  experts_and_vendors: true
+
+reporting:
+  status_interval_days: 90
+  litigation_plan_required: true
+
+description:
+  adequate_examples:
+    - "Identify participants and subject in communications"
+    - "Specify motion/discovery, scope, purpose, and volume reviewed"
+    - "State deponent/witness identity and purpose"
+  inadequate_phrases:
+    - "attention to matter"
+    - "work on file"
+    - "update status"
+    - "research"
+    - "analysis"
+nonbillable_tasks:
+  - "clerical/overhead (opening/closing files, calendaring, copying, scanning, postage)"
+  - "intra-firm admin/supervision, time educating juniors"
+  - "preparing/responding to auditors"
+  - "conflict checks"
+  - "travel arrangements, messenger runs"
+  - "proofreading/rework of own mistakes"
+utbms_mapping_defaults:
+  research: "L120"
+  email_comms: "L140"
+  discovery: "L230"
+  motions_briefs: "L310"
+  depositions: "L330"
+  assessment_strategy: "L130"

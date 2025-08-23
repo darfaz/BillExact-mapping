@@ -1,0 +1,60 @@
+schema_version: 1
+name: endurance_overlay
+applies_if:
+  client_id_in: ["ENDURANCE","SOMPO","SOMPO INTERNATIONAL","SOMPO/ENDURANCE"]
+
+reporting:
+  acknowledge_within_days: 2
+  plan_and_budget_within_days: 60
+  status_interval_days: 90
+  pretrial_report_days: 60
+  mediation_eval_days: 30
+  budget_update_semiannual: true
+
+staffing:
+  max_attendees_per_event: 1
+  allowed_roles: [lead_attorney, associate, paralegal]
+  paralegal_encouraged: true
+
+billing:
+  utbms_required: true
+  no_block_billing: true
+  min_increment_hours: 0.1
+  travel_time_rate_multiplier: 1.0
+  reject_e_legal_research_charges: true
+  reject_overhead_tasks: true
+  ledes_submission_vendor: "Bottomline"
+
+preapprovals:
+  legal_research_hours_threshold: 3
+  discovery_motions: true
+  additional_attendee: true
+  expense_threshold_usd: 5000
+
+discovery:
+  deposition_report_max_pages: 3
+  digest_page_line_requires_preapproval: true
+
+nonbillable_tasks_expanded:
+  - "opening/closing files; calendaring"
+  - "auditor responses; invoice prep"
+  - "overhead/clerical; messenger; faxing; postage"
+  - "proofreading/rework; drafting for other files"
+  - "internal admin/supervision; training time"
+  - "Westlaw/Lexis charges; fundamental rules research"
+  - "multiple recipients billed individually for same doc"
+
+appeals:
+  deduction_appeal_days: 45
+
+description_guidance:
+  require_adequate: true
+  adequate_examples:
+    - "For communications: participants + subject discussed"
+    - "For hearings: purpose and who attended"
+    - "For documents reviewed: identity, scope, purpose, volume (bates)"
+  inadequate_phrases:
+    - "attention to matter"
+    - "work on discovery"
+    - "prepare for deposition"
+    - "analysis"
