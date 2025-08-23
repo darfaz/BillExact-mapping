@@ -1,0 +1,46 @@
+import datetime as dt
+from urllib.parse import urlparse
+import requests
+
+AW_BASE = "http://127.0.0.1:5600/api/0"
+
+def _iso(ts):  # ts: datetime or str
+    if isinstance(ts, str): return ts
+    if isinstance(ts, dt.datetime): return ts.replace(microsecond=0).isoformat()
+    raise ValueError("start/end must be ISO string or datetime")
+
+def list_buckets():
+    r = requests.get(f"{AW_BASE}/buckets", timeout=5)
+    r.raise_for_status()
+    return r.json()
+
+def fetch_events(bucket_id, start_iso, end_iso):
+    params = {"start": start_iso, "end": end_iso}
+    r = requests.get(f"{AW_BASE}/buckets/{bucket_id}/events", params=params, timeout=10)
+    r.raise_for_status()
+    return r.json()
+
+def summarize_events(start, end):
+    """Return list of dicts: {date, description, duration_hours} from window/web buckets."""
+    start_iso, end_iso = _iso(start), _iso(end)
+    buckets = [b["id"] for b in list_buckets() if b["id"].startswith(("aw-watcher-window_", "aw-watcher-web-"))]
+    items = []
+    for b in buckets:
+        for ev in fetch_events(b, start_iso, end_iso):
+            # AW event keys: ['timestamp','duration','data']
+            dur_s = ev.get("duration", 0) or 0
+            if dur_s <= 0: continue
+            ts = ev["timestamp"][:19]  # 'YYYY-MM-DDTHH:MM:SS'
+            date = ts.split("T")[0]
+            data = ev.get("data", {}) or {}
+            title = data.get("title") or data.get("app") or data.get("url") or "activity"
+            # if URL, use host + path snippet
+            if isinstance(title, str) and title.startswith("http"):
+                try:
+                    u = urlparse(title)
+                    title = (u.netloc or "web") + (u.path or "")
+                except Exception:
+                    pass
+            desc = str(title)[:255]
+            items.append({"date": date, "description": desc, "duration_hours": round(dur_s/3600, 4)})
+    return items

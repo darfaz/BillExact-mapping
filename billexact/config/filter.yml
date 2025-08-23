@@ -1,0 +1,6 @@
+filters:
+  nonbillable_apps: ["loginwindow","screensaverengine","spotify","music","whatsapp","telegram","signal","photos","calendar","system settings","system preferences"]
+  nonbillable_hosts: ["youtube.com","www.youtube.com","netflix.com","hulu.com","primevideo.com","reddit.com","facebook.com","instagram.com","twitter.com","x.com"]
+  nonbillable_title_keywords: ["YouTube","Netflix","Prime Video","Hulu","WhatsApp","iMessage","Messages","Photos","Music","Calendar","Settings"]
+  min_seconds: 120
+  gap_merge_seconds: 300

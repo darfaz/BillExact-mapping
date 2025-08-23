@@ -1,5 +1,7 @@
-daily_hours_cap: 12.0
-forbidden_phrases:
-  - "review"
-  - "analysis"
-  - "research"
+rules:
+  description_length: { enabled: true, min_chars: 24 }
+  vague_phrase: { enabled: true, phrases: ["work on","misc","general","review docs","review documents","follow up"] }
+  block_billing: { enabled: true }
+  daily_hours_cap: { enabled: true, max_hours: 10 }
+  travel_time: { enabled: true, keywords: ["travel","drive","uber","cab","taxi"] }
+  max_entry_duration: { enabled: false, max_hours: 0.3 }

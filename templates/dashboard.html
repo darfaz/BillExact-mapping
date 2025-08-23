@@ -1,21 +1,35 @@
-<!doctype html>
-<html>
-  <body>
-    <h1>BillExact Review Dashboard</h1>
-    <table border="1">
-      <tr><th>ID</th><th>Narrative</th><th>Duration</th><th>Compliance Issues</th></tr>
-      {% for entry in entries %}
-      <tr>
-        <td>{{ entry.id }}</td>
-        <td>{{ entry.narrative }}</td>
-        <td>{{ entry.duration }}</td>
-        <td>
-          {% for issue in issues if issue.rule_id and entry.id in issue.message %}
-            <span style="color:red">{{ issue.message }}</span><br>
-          {% endfor %}
-        </td>
-      </tr>
-      {% endfor %}
-    </table>
-  </body>
-</html>
+<!doctype html><html><head><meta charset="utf-8" />
+<title>BillExact — Daily Review</title>
+<style>
+body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;margin:24px}
+table{border-collapse:collapse;width:100%}
+th,td{border:1px solid #e4e4e4;padding:8px 10px;text-align:left}
+th{background:#f7f7f7}.warn{color:#b26b00}.err{color:#c62828}
+.badge{display:inline-block;padding:2px 6px;border-radius:6px;font-size:12px}
+.badge-warn{background:#fff3cd;color:#7a5a00}.badge-err{background:#fdecea;color:#7a1a1a}
+</style></head><body>
+<h1>BillExact — Daily Review</h1>
+<table><tr><th>ID</th><th>Date</th><th>Description</th><th>UTBMS</th><th>Duration (h)</th><th>Compliance</th></tr>
+{% for e in entries %}
+<tr>
+<td>{{ e.id }}</td>
+<td>{{ e.work_date or '' }}</td>
+<td>{{ e.description }}</td>
+<td>{{ e.utbms_code or '' }}</td>
+<td>{{ '%.2f'|format(e.duration_hours) }}</td>
+<td>
+{% set flagged = [] %}
+{% for i in issues if i.entry_id == e.id %}
+  {% set cls = 'badge-warn' if i.severity == 'warning' else 'badge-err' %}
+  <span class="badge {{ cls }}">{{ i.rule_id }}</span>
+  <div class="{{ 'warn' if i.severity == 'warning' else 'err' }}">{{ i.message }}{% if i.suggestion %} — {{ i.suggestion }}{% endif %}</div>
+  {% set flagged = flagged + [i.rule_id] %}
+{% endfor %}
+{% if flagged|length == 0 %}
+  <span class="badge" style="background:#e8f5e9;color:#1b5e20;">clean</span>
+{% endif %}
+</td>
+</tr>
+{% endfor %}
+</table>
+</body></html>
