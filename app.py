@@ -3,6 +3,8 @@ from flask import Flask, render_template, request, jsonify, Response
 from billexact.models import TimeEntry
 from billexact.compliance.engine import run_compliance
 from billexact.ledes.exporter import to_ledes_1998b
+from billexact.policy.loader import load_policy_for_client
+from billexact.compliance.types import ComplianceIssue, Severity
 from billexact.mapper import map_utbms
 DB_PATH = os.environ.get("BILLEXACT_DB", os.path.join("data","billexact.db"))
 os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
@@ -29,6 +31,56 @@ def fetch_entries(limit=200):
             duration_hours=float(dur or 0), description=desc or "", utbms_code=code
         ))
     return entries
+
+def _load_desc_cfg():
+    import yaml
+    from pathlib import Path
+    p = Path("billexact/config/descriptions.yml")
+    if not p.exists():
+        return {}
+    try:
+        return yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return {}
+
+def _dominant_client_id(entries):
+    from collections import Counter
+    c = Counter([ (e.client_id or "").strip() for e in entries if (e.client_id or "").strip() ])
+    return c.most_common(1)[0][0] if c else None
+
+def _policy_issues(entries, policy, desc_cfg):
+    issues = []
+    forbid = set( (desc_cfg.get("adequate_rules") or {}).get("forbid_vague_phrases", []) )
+    require_participants = (desc_cfg.get("adequate_rules") or {}).get("require_participants_on_comms", False)
+
+    for e in entries:
+        desc = (e.description or "")
+        low = desc.lower()
+
+        # forbidden phrases
+        for fp in forbid:
+            if fp.lower() in low:
+                issues.append(ComplianceIssue(
+                    rule_id="policy_desc_vague",
+                    entry_id=str(e.id),
+                    severity=Severity.WARNING,
+                    message=f'Vague phrase "{fp}" detected; add specifics.',
+                    suggestion="Identify participants, purpose, scope, volume; split tasks if needed."
+                ))
+                break
+
+        # L140 communications: require participants if policy says so
+        if require_participants and (e.utbms_code or "").upper() == "L140":
+            # naive check: look for "with " or a known email/phone cue
+            if (" with " not in low) and ("@" not in low) and ("call" not in low):
+                issues.append(ComplianceIssue(
+                    rule_id="policy_comm_participants",
+                    entry_id=str(e.id),
+                    severity=Severity.WARNING,
+                    message="Participants missing for communication entry (L140).",
+                    suggestion="Include who you communicated with and the subject."
+                ))
+    return issues
 @app.route("/")
 def dashboard():
     entries = fetch_entries()
@@ -46,6 +98,12 @@ def api_compliance():
             utbms_code=it.get("utbms_code")
         ))
     issues = run_compliance(entries, config_path="billexact/config/rules.yml")
+    client_id = None
+    if entries:
+        client_id = entries[0].client_id
+    policy = load_policy_for_client(client_id)
+    desc_cfg = _load_desc_cfg()
+    issues += _policy_issues(entries, policy, desc_cfg)
     return jsonify([{
         "rule_id": i.rule_id, "entry_id": i.entry_id, "severity": i.severity.value,
         "message": i.message, "suggestion": i.suggestion
